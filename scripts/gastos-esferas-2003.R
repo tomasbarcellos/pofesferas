@@ -66,13 +66,15 @@ length(tradutor$`Cod Pof`)
 
 despesas_mensais_col <- recod.despesas(t_caderneta_despesa , n.cod.qd = "prod_num_quadro_grupo_pro")
 
-despesas_mensais_ind <- recod.despesas(t_despesa_individual)
+despesas_mensais_ind <- recod.despesas(t_despesa)
 
 despesas_90 <- recod.despesas(t_despesa_90dias)
 
 despesas_veic <- recod.despesas(t_despesa_veiculo)
 
 despesas_12m <- recod.despesas(t_despesa_12meses)
+
+despesas_esp <- recod.despesas(t_despesa_esp)
 
 rm(list = ls(pattern = "t_de"))
 rm(t_caderneta_despesa)
@@ -84,8 +86,8 @@ rm(list = ls(pattern = "despesas_"))
 gc()
 
 # algumas recodificações e enxugamento dos dicionários de tradução
-tradutor$'Produto POF' <- str_sub(tradutor$'Produto POF' , 1 , 5) 
 names(tradutor)[1] <- "codigo"
+tradutor$'Produto POF' <- str_sub(tradutor$'Produto POF' , 1 , 5) 
 tradutor <- tradutor[!duplicated(tradutor$codigo),]
 
 #adiciona código fictício para códigos POF que não são traduzidos como itens de consumo final
@@ -129,98 +131,95 @@ gastos_SCN <- left_join(gastos_SCN,trad.agregado)
 
 
 ###################### Função que gera as estimativas para cada item - semi adaptado ------------
-cesta_esferas <-
-  function(
-    curCode ,
-    family.level.income = domicilios_trabalhadores ,
-    gastos_SCN = gastos_SCN ,
-    componentes = componentes ,
-    poststr = poststr
-  ){
-    
-    curCode.plus.subcodes <-
-      componentes[substring(componentes$item68x20,1,nchar(curCode)) == curCode,'item68x20'] 
-    
-    family.expenditures.by.code <- 
-      gastos_SCN[ gastos_SCN$item68x20 %in% curCode.plus.subcodes , c( 'item68x20' , 'despmes' , 'cod.uc' ) ]
-    
-    family.level.spending <-
-      aggregate( 
-        despmes ~ cod.uc , 
-        family.expenditures.by.code , 
-        sum 
-      )
-    
-    y <- merge( family.level.income , family.level.spending , all.x = TRUE )
-    
-    y[ is.na( y$despmes ) , 'despmes' ] <- 0
-    z <- 
-      merge( 
-        y , 
-        poststr[ , c( 'control' , 'estrato_unico' , 'fator_des' , 'pos_estrato' , 'tot_unidade_c' ) ] 
-      )
-    
-    stopifnot( nrow( z ) == nrow( y ) )
-    
-    sample.pof <-
-      svydesign(
-        id = ~control , 
-        strata = ~estrato_unico , 
-        weights = ~fator_des ,
-        data = z , 
-        nest = TRUE
-      )
-    
-    uc.totals <- 
-      data.frame(
-        pos_estrato = unique( z$pos_estrato ) , 
-        Freq = unique( z$tot_unidade_c )
-      )
-    
-    pof.design <- 
-      postStratify(
-        sample.pof , 
-        ~pos_estrato , 
-        uc.totals
-      )
-    
-    st <- svymean( ~despmes , pof.design )
-    
-    sb <- 
-      svyby(
-        ~despmes , 
-        ~trabalhador.cat , 
-        pof.design , 
-        svymean
-      )
-    
-    ot <-
-      data.frame( 
-        trabalhador.cat = 'Total' , 
-        mean = coef( st ) , 
-        se = as.numeric( SE( st ) ) , 
-        cv = as.numeric( cv( st ) )
-      )
-    
-    ob <-
-      data.frame( 
-        trabalhador.cat = sb$trabalhador.cat , 
-        mean = coef( sb ) , 
-        se = as.numeric( SE( sb ) ) , 
-        cv = as.numeric( cv( sb ) )
-      )
-    
-    w <- rbind( ot , ob )
-    
-    w$item68x20 <- curCode
-    
-    reshape( 
-      w , 
-      idvar = 'item68x20' ,
-      timevar = 'trabalhador.cat' ,
-      direction = 'wide'
+cesta_esferas <- function(curCode ,
+                          family.level.income = domicilios_trabalhadores ,
+                          gastos_SCN = gastos_SCN ,
+                          componentes = componentes ,
+                          poststr = poststr){
+  
+  curCode.plus.subcodes <-
+    componentes[substring(componentes$item68x20,1,nchar(curCode)) == curCode,'item68x20'] 
+  
+  family.expenditures.by.code <- 
+    gastos_SCN[ gastos_SCN$item68x20 %in% curCode.plus.subcodes , c( 'item68x20' , 'despmes' , 'cod.uc' ) ]
+  
+  family.level.spending <-
+    aggregate( 
+      despmes ~ cod.uc , 
+      family.expenditures.by.code , 
+      sum 
     )
-  }
+  
+  y <- merge( family.level.income , family.level.spending , all.x = TRUE )
+  
+  y[ is.na( y$despmes ) , 'despmes' ] <- 0
+  z <- 
+    merge( 
+      y , 
+      poststr[ , c( 'control' , 'estrato_unico' , 'fator_des' , 'pos_estrato' , 'tot_unidade_c' ) ] 
+    )
+  
+  stopifnot( nrow( z ) == nrow( y ) )
+  
+  sample.pof <-
+    svydesign(
+      id = ~control , 
+      strata = ~estrato_unico , 
+      weights = ~fator_des ,
+      data = z , 
+      nest = TRUE
+    )
+  
+  uc.totals <- 
+    data.frame(
+      pos_estrato = unique( z$pos_estrato ) , 
+      Freq = unique( z$tot_unidade_c )
+    )
+  
+  pof.design <- 
+    postStratify(
+      sample.pof , 
+      ~pos_estrato , 
+      uc.totals
+    )
+  
+  st <- svymean( ~despmes , pof.design )
+  
+  sb <- 
+    svyby(
+      ~despmes , 
+      ~trabalhador.cat , 
+      pof.design , 
+      svymean
+    )
+  
+  ot <-
+    data.frame( 
+      trabalhador.cat = 'Total' , 
+      mean = coef( st ) , 
+      se = as.numeric( SE( st ) ) , 
+      cv = as.numeric( cv( st ) )
+    )
+  
+  ob <-
+    data.frame( 
+      trabalhador.cat = sb$trabalhador.cat , 
+      mean = coef( sb ) , 
+      se = as.numeric( SE( sb ) ) , 
+      cv = as.numeric( cv( sb ) )
+    )
+  
+  w <- rbind( ot , ob )
+  
+  w$item68x20 <- curCode
+  
+  reshape( 
+    w , 
+    idvar = 'item68x20' ,
+    timevar = 'trabalhador.cat' ,
+    direction = 'wide'
+  )
+}
 
 
 ### Exemplos da Função em execução -----------
